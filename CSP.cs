@@ -42,9 +42,15 @@ namespace CG_CSP_1440
         List<Pairing> OptColumn;
         Dictionary<int, double> Value_Column;//每个var对应的解值
 
+        //2-23-2019
+        public double OBJVALUE; 
+
+        TreeNode root_node;
+        Stack<INumVar> var_to_branch;
 
         //参数
         int num_AddColumn = 10;
+        double GAP = 0.01;
 
         public CSP(NetWork Network) 
         {
@@ -363,116 +369,7 @@ namespace CG_CSP_1440
                     break;
             }
         }
-
-        
-        #region 新增，2018-12-11，看完分支定界后的想法
-        public void CreateChildNode() 
-        {
-
-            int i = 0;//fixed var
-            X[i].UB = 1.0;
-            X[i].LB = 1.0;
-            
-        }
-        public void CG() 
-        {
-            //IS
-            //BuildRMP
-            int result = SolveRMP();
-            int i;
-            
-            RCSPP rcspp = new RCSPP();//至始至终定价问题都只有一个实体，求解过程中只是改变各属性值
-            List<Pairing> New_Columns;            
-            double[] reduced_costs;
-            int[,] new_MultiAjis;
-
-            for (; ; )
-            {                
-                //if (IsRelaxOpt(ref rcspp))
-                //    break;
-                //Console.WriteLine("检验数(min)： " + rcspp.Reduced_Cost);
-                //TODO:add columns
-                //New_Columns = rcspp.New_Columns;
-                //reduced_costs = rcspp.reduced_costs;
-                //new_MultiAjis = rcspp.newMultiAji;
-                //for ( i = 0; i < New_Columns.Count; i++)
-                //{
-                    
-                //}
-            }
-
-        
-        }
-
-        public int SolveRMP() 
-        {
-            int status = 0;
-            try
-            {
-                if (masterModel.Solve()) {
-                    Console.WriteLine("{0}: {1}", "RMP ObjValue", masterModel.GetObjValue());
-                    //Console.WriteLine("iter time: ",Linear_iter);
-                } 
-                else {
-                    throw new ILOG.Concert.Exception();
-                }
-                    
-            }
-            catch (ILOG.Concert.Exception ex)
-            {
-                Console.WriteLine("RMP can't solved, there might exit some error");
-                Console.WriteLine("{0} from {1}", ex.Message, ex.Source);
-            }                                
-            return status;
-        }
-        void RecordNodeSolution()//记录值为分数的var，即待分支的var
-        {
-            int i;
-            double value_var;
-            Value_Column = new Dictionary<int, double>();
-            for (i = 0; i < X.Count; i++)
-            {
-                value_var=masterModel.GetValue(X[i]);
-                if (!(value_var == 0 || value_var == 1))
-                    Value_Column[i] = masterModel.GetValue(X[i]);                    
-            }
-        }
-
-        bool IsRelaxOpt(ref RCSPP rcspp) //求解子问题，判断 检验数 < 0 ?
-        {            
-            Change_Arc_Length();
-            rcspp.ShortestPath("Forward");
-                        
-            bool stopLP = rcspp.FindMultipleNewPath(num_AddColumn);//T-opt;F-iter
-
-            return stopLP;//未达到最优，继续生成新列
-        }
-        
-
-        #region //分支
-        void RecordCurrentOpt() 
-        {                        
-            int i;
-            double v;
-            Pairing Column;
-            for (i = 0; i < ColumnPool.Count; i++) 
-            {                
-                Column = ColumnPool[i];
-                v = masterModel.GetValue((INumVar)X[i]);
-                if (v == 1) {
-                    OptColumn.Add(Column);
-                }
-            }
-           // double fixedVar = Value_Column.Max(var => var.Value);
-        }
-        void Branch() 
-        {
-        
-        }
-        #endregion
-
-        #endregion
-
+              
         #region //判断是否stuck
         //bool Check_Stuck(double Reduced_Cost, LoopPath Column) 
         //{
@@ -492,41 +389,238 @@ namespace CG_CSP_1440
         //    return flag;
         //}
         #endregion
-
-
-
-
-        public void Branch_and_Price() 
+        
+        /********************/
+        
+        public void Branch_and_Price(InitialSolution IS) 
         {
+            Build_RMP_General(IS);
+
+            root_node = new TreeNode();
+            CG(root_node);
+
+            var_to_branch = new Stack<INumVar>();
+            //TODO:添加函数：将第一次求解，即根节点结果存储，包括变量值，目标函数值等
+            
+
+
+            Branch_and_Bound(root_node);
+
         
         }
-        public void WriteCrewPaths(string file) 
+
+        #region 新增，2018-12-11，看完分支定界后的想法
+
+        public void CG(TreeNode tree_node)
         {
-            StreamWriter Crew_paths = new StreamWriter(file);
-            int i, j;
-            int count = 1;
-            Arc arc;
-            Node trip;
-            for (i = 0; i < X.Count; i++) 
+            //IS
+            //BuildRMP
+            int result = SolveRMP();
+            int i;
+
+            RCSPP rcspp = new RCSPP();//至始至终定价问题都只有一个实体，求解过程中只是改变各属性值
+            List<Pairing> New_Columns;
+            double[] reduced_costs;
+            int[,] new_MultiAjis;
+
+            for (; ; )
             {
-                if (masterModel.GetValue((INumVar)X[i]) > 0) 
-                {
-                    Crew_paths.WriteLine("Route " + count++);
-                    for (j = 1; j < PathSet[i].Arcs.Count - 1; j++) 
-                    {
-                        arc = PathSet[i].Arcs[j];
-                        trip = arc.O_Point;
-                        //if (trip.LineID > 0) {
-                        Crew_paths.Write(trip.LineID + " -> ");
-                        //}
-                    }
-                    Crew_paths.WriteLine(PathSet[i].Arcs[j].O_Point.LineID);
-                }
+                //if (IsRelaxOpt(ref rcspp))
+                //    break;
+                //Console.WriteLine("检验数(min)： " + rcspp.Reduced_Cost);
+                //TODO:add columns
+                //New_Columns = rcspp.New_Columns;
+                //reduced_costs = rcspp.reduced_costs;
+                //new_MultiAjis = rcspp.newMultiAji;
+                //for ( i = 0; i < New_Columns.Count; i++)
+                //{
+
+                //}
             }
-            Crew_paths.Close();
 
 
         }
+        public void Branch_and_Bound(TreeNode root_node) 
+        {
+            double UB = int.MaxValue;
+            double LB = root_node.obj_value;
+            
+            while (TerminationCondition() == false) 
+            {
+                if (CheckFeasible(root_node) == false)
+                {
+                    if (root_node.obj_value > UB) //不必在该点继续分支
+                    {
+                        /*没有节点（变量）可以回溯，所有变量分支过了
+                        * 没有变量可以分支，所有变量都分支过了
+                         */
+                        if (root_node.fixed_vars.Count == 0
+                            || root_node.not_fixed_var_value_pairs.Count == 0)
+                        {
+                            Console.WriteLine("找不到可分支的变量");
+                            break;
+                        }
+
+                        Backtrack(ref root_node.fixed_vars);
+                        SolveChildNode(ref root_node);
+                        //continue;
+                    }
+                    else //root_node.obj_value <= UB,有希望，继续分支
+                    {
+                        LB = root_node.obj_value;
+                        SolveChildNode(ref root_node);
+                        //continue;
+                    }
+                }
+                else //可行，更新上界
+                {
+                    //TODO:可抽离为函数 2-23-2019
+                    if (root_node.obj_value > UB) //不必在该点继续分支
+                    {
+                        /*没有节点（变量）可以回溯，所有变量分支过了
+                        * 没有变量可以分支，所有变量都分支过了
+                         */
+                        if (root_node.fixed_vars.Count == 0
+                            || root_node.not_fixed_var_value_pairs.Count == 0)
+                        {
+                            Console.WriteLine("找不到可分支的变量");
+                            break;
+                        }
+
+                        Backtrack(ref root_node.fixed_vars);
+                        SolveChildNode(ref root_node);
+                        
+                    }
+                    else //root_node.obj_value <= UB，更新UB，停止在该点分支，回溯
+                    {
+                        UB = root_node.obj_value;
+                        RecordNodeSolution(root_node);
+
+                        if ((UB - LB) / UB < GAP) 
+                        {                            
+                            break;
+                        }
+
+                        Backtrack(ref root_node.fixed_vars);
+                        SolveChildNode(ref root_node);                        
+                    }
+                }
+            }
+        }
+        bool TerminationCondition() 
+        {
+
+            return true;
+        }
+        bool CheckFeasible(TreeNode node) 
+        {
+            double epsilon = 1e-12;
+            foreach (var var_value in node.not_fixed_var_value_pairs) 
+            {                                
+                if (Math.Abs(var_value.Value - Convert.ToInt32(var_value.Value)) > epsilon) //不是整数，不可行（浮点型不用 == ，!=比较）
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        void Backtrack(ref List<INumVar> fixed_vars) 
+        {                        
+            fixed_vars.RemoveAt(fixed_vars.Count - 1);
+        }
+        void Branch(ref TreeNode node)
+        {
+            //找字典最大Value对应的key
+            INumVar var_maxvalue = node.not_fixed_var_value_pairs.First().Key;
+            double maxvalue = node.not_fixed_var_value_pairs.First().Value;
+
+            foreach (var var_value in node.not_fixed_var_value_pairs) 
+            {
+                var_maxvalue = maxvalue > var_value.Value ? var_maxvalue : var_value.Key;
+            }
+
+            node.fixed_vars.Add(var_maxvalue);
+            node.not_fixed_var_value_pairs.Remove(var_maxvalue);
+        }
+        void RecordNodeSolution(TreeNode node)//TODO:记录值为分数的var，即待分支的var 2-23-2019
+        {
+            int i;
+            double value_var;
+            Value_Column = new Dictionary<int, double>();
+            for (i = 0; i < X.Count; i++)
+            {
+                value_var = masterModel.GetValue(X[i]);
+                if (!(value_var == 0 || value_var == 1))
+                    Value_Column[i] = masterModel.GetValue(X[i]);
+            }
+        }
+
+        public void SolveChildNode(ref TreeNode node) 
+        {            
+            
+            Branch(ref root_node);
+            CG(root_node);           
+        }
+        
+
+        public int SolveRMP()
+        {
+            int status = 0;
+            try
+            {
+                if (masterModel.Solve())
+                {
+                    Console.WriteLine("{0}: {1}", "RMP ObjValue", masterModel.GetObjValue());
+                    //Console.WriteLine("iter time: ",Linear_iter);
+                }
+                else
+                {
+                    throw new ILOG.Concert.Exception();
+                }
+
+            }
+            catch (ILOG.Concert.Exception ex)
+            {
+                Console.WriteLine("RMP can't solved, there might exit some error");
+                Console.WriteLine("{0} from {1}", ex.Message, ex.Source);
+            }
+            return status;
+        }
+        
+
+        bool IsRelaxOpt(ref RCSPP rcspp) //求解子问题，判断 检验数 < 0 ?
+        {
+            Change_Arc_Length();
+            rcspp.ShortestPath("Forward");
+
+            bool stopLP = rcspp.FindMultipleNewPath(num_AddColumn);//T-opt;F-iter
+
+            return stopLP;//未达到最优，继续生成新列
+        }
+
+
+        #region //分支
+        void RecordCurrentOpt()
+        {
+            int i;
+            double v;
+            Pairing Column;
+            for (i = 0; i < ColumnPool.Count; i++)
+            {
+                Column = ColumnPool[i];
+                v = masterModel.GetValue((INumVar)X[i]);
+                if (v == 1)
+                {
+                    OptColumn.Add(Column);
+                }
+            }
+            // double fixedVar = Value_Column.Max(var => var.Value);
+        }
+        
+        #endregion
+
+        #endregion
+        
         
 
     }
