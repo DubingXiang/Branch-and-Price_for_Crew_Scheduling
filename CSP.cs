@@ -39,14 +39,15 @@ namespace CG_CSP_1440
         List<Pairing> ColumnPool = new List<Pairing>();
 
         //新添加：12-11-2018
-        List<Pairing> OptColumn;
-        Dictionary<int, double> Value_Column;//每个var对应的解值
+        List<Pairing> OptColumns;
+        
 
         //2-23-2019
         public double OBJVALUE; 
 
         TreeNode root_node;
-        Stack<INumVar> var_to_branch;
+        //Stack<INumVar> var_to_branch;
+        List<int> best_feasible_solution; //元素值为1的为决策变量的下标。只记录一个可行解，因为分支定界过程中，始终只存在一个可行解
 
         //参数
         int num_AddColumn = 10;
@@ -399,9 +400,9 @@ namespace CG_CSP_1440
             root_node = new TreeNode();
             CG(root_node);
 
-            var_to_branch = new Stack<INumVar>();
-            //TODO:添加函数：将第一次求解，即根节点结果存储，包括变量值，目标函数值等
-            
+            best_feasible_solution = new List<int>();
+                        
+            RecordFeasibleSolution(root_node, ref best_feasible_solution);
 
 
             Branch_and_Bound(root_node);
@@ -410,7 +411,126 @@ namespace CG_CSP_1440
         }
 
         #region 新增，2018-12-11，看完分支定界后的想法
+        
+        public void Branch_and_Bound(TreeNode root_node) 
+        {
+            double UB = int.MaxValue;
+            double LB = root_node.obj_value;
+  
+            while (TerminationCondition(root_node) == false) 
+            {
+                if (Feasible(root_node) == false)
+                {
+                    if (root_node.obj_value > UB) //不必在该点继续分支
+                    {
+                        //if (NoVarBranchable(root_node)) //放到停止准则里去，每次循环先检查
+                        //{
+                        //    break;
+                        //}
+                        Backtrack(ref root_node.fixed_vars);                                              
+                    }
+                    else //root_node.obj_value <= UB,有希望，更新下界，继续分支,
+                    {
+                        LB = root_node.obj_value;                        
+                    }   
+                }
+                else //可行，更新上界。【2-24-2019：只要可行，不管可行解是否优于当前最优可行（OBJ < UB）都不用在该点继续分支，而是回溯】
+                {                    
+                    if (root_node.obj_value <= UB) //root_node.obj_value <= UB，更新UB，停止在该点分支，回溯
+                    {
+                        UB = root_node.obj_value;
+                        RecordFeasibleSolution(root_node, ref best_feasible_solution);
 
+                        if ((UB - LB) / UB < GAP) //这也是停止准则，但只能放在这里
+                        {                            
+                            break;
+                        }
+                    }
+
+                    Backtrack(ref root_node.fixed_vars); 
+                }
+
+                SolveChildNode(ref root_node);
+            }
+        }
+
+        bool TerminationCondition(TreeNode node) 
+        {
+
+            return NoVarBranchable(node);
+        }
+        bool NoVarBranchable(TreeNode node)
+        {
+            /*没有节点（变量）可以回溯，所有变量分支过了
+                           * 没有变量可以分支，所有变量都分支过了
+                            */
+            if (root_node.fixed_vars.Count == 0
+                || root_node.not_fixed_var_value_pairs.Count == 0)
+            {
+                Console.WriteLine("找不到可分支的变量");
+                return true;
+            }
+            return false;
+        }
+
+        bool Feasible(TreeNode node) 
+        {            
+            foreach (var var_value in node.not_fixed_var_value_pairs) 
+            {
+                if (ISInteger(var_value.Value) == false) 
+                {
+                    return false;
+                }    
+            }
+            return true;
+        }
+        bool ISInteger(double value, double epsilon = 1e-12) //本问题是0-1变量，这里为了普遍性，判断整数
+        {
+            return Math.Abs(value - Convert.ToInt32(value)) <= epsilon; //不是整数，不可行（浮点型不用 == ，!=比较）           
+        }
+        
+        void Backtrack(ref List<int> fixed_vars) 
+        {                        
+            fixed_vars.RemoveAt(fixed_vars.Count - 1);
+        }
+        void Branch(ref TreeNode node)
+        {
+            //找字典最大Value对应的key
+            /*用lambda： var k = node.not_fixed_var_value_pairs.FirstOrDefault(v => v.Value.Equals
+                                                                            *(node.not_fixed_var_value_pairs.Values.Max()));*/
+
+            int var_of_maxvalue = node.not_fixed_var_value_pairs.First().Key;
+            double maxvalue = node.not_fixed_var_value_pairs.First().Value;
+
+            foreach (var var_value in node.not_fixed_var_value_pairs) 
+            {
+                var_of_maxvalue = maxvalue > var_value.Value ? var_of_maxvalue : var_value.Key;
+            }
+
+            node.fixed_vars.Add(var_of_maxvalue);
+            node.not_fixed_var_value_pairs.Remove(var_of_maxvalue);
+        }
+
+        void RecordFeasibleSolution(TreeNode node, ref List<int> best_feasible_solution)//TODO:因为fixed_vars被fixed为1，所以只需记录值为分数的var（0 or 1），即待分支的var 2-23-2019
+        {
+            best_feasible_solution.Clear(); //找到更好的可行解了，不需要之前的了
+
+            foreach (var var_value in node.not_fixed_var_value_pairs) 
+            {
+                if (Convert.ToInt32(var_value.Value) > 0 && ISInteger(var_value.Value)) 
+                {
+                    best_feasible_solution.Add(var_value.Key);
+                }
+            }
+        }
+
+        public void SolveChildNode(ref TreeNode node) 
+        {                        
+            Branch(ref root_node);
+            CG(root_node);           
+        }
+        
+        /*******CG相关*******/
         public void CG(TreeNode tree_node)
         {
             //IS
@@ -440,129 +560,6 @@ namespace CG_CSP_1440
 
 
         }
-        public void Branch_and_Bound(TreeNode root_node) 
-        {
-            double UB = int.MaxValue;
-            double LB = root_node.obj_value;
-            
-            while (TerminationCondition() == false) 
-            {
-                if (CheckFeasible(root_node) == false)
-                {
-                    if (root_node.obj_value > UB) //不必在该点继续分支
-                    {
-                        /*没有节点（变量）可以回溯，所有变量分支过了
-                        * 没有变量可以分支，所有变量都分支过了
-                         */
-                        if (root_node.fixed_vars.Count == 0
-                            || root_node.not_fixed_var_value_pairs.Count == 0)
-                        {
-                            Console.WriteLine("找不到可分支的变量");
-                            break;
-                        }
-
-                        Backtrack(ref root_node.fixed_vars);
-                        SolveChildNode(ref root_node);
-                        //continue;
-                    }
-                    else //root_node.obj_value <= UB,有希望，继续分支
-                    {
-                        LB = root_node.obj_value;
-                        SolveChildNode(ref root_node);
-                        //continue;
-                    }
-                }
-                else //可行，更新上界
-                {
-                    //TODO:可抽离为函数 2-23-2019
-                    if (root_node.obj_value > UB) //不必在该点继续分支
-                    {
-                        /*没有节点（变量）可以回溯，所有变量分支过了
-                        * 没有变量可以分支，所有变量都分支过了
-                         */
-                        if (root_node.fixed_vars.Count == 0
-                            || root_node.not_fixed_var_value_pairs.Count == 0)
-                        {
-                            Console.WriteLine("找不到可分支的变量");
-                            break;
-                        }
-
-                        Backtrack(ref root_node.fixed_vars);
-                        SolveChildNode(ref root_node);
-                        
-                    }
-                    else //root_node.obj_value <= UB，更新UB，停止在该点分支，回溯
-                    {
-                        UB = root_node.obj_value;
-                        RecordNodeSolution(root_node);
-
-                        if ((UB - LB) / UB < GAP) 
-                        {                            
-                            break;
-                        }
-
-                        Backtrack(ref root_node.fixed_vars);
-                        SolveChildNode(ref root_node);                        
-                    }
-                }
-            }
-        }
-        bool TerminationCondition() 
-        {
-
-            return true;
-        }
-        bool CheckFeasible(TreeNode node) 
-        {
-            double epsilon = 1e-12;
-            foreach (var var_value in node.not_fixed_var_value_pairs) 
-            {                                
-                if (Math.Abs(var_value.Value - Convert.ToInt32(var_value.Value)) > epsilon) //不是整数，不可行（浮点型不用 == ，!=比较）
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-        void Backtrack(ref List<INumVar> fixed_vars) 
-        {                        
-            fixed_vars.RemoveAt(fixed_vars.Count - 1);
-        }
-        void Branch(ref TreeNode node)
-        {
-            //找字典最大Value对应的key
-            INumVar var_maxvalue = node.not_fixed_var_value_pairs.First().Key;
-            double maxvalue = node.not_fixed_var_value_pairs.First().Value;
-
-            foreach (var var_value in node.not_fixed_var_value_pairs) 
-            {
-                var_maxvalue = maxvalue > var_value.Value ? var_maxvalue : var_value.Key;
-            }
-
-            node.fixed_vars.Add(var_maxvalue);
-            node.not_fixed_var_value_pairs.Remove(var_maxvalue);
-        }
-        void RecordNodeSolution(TreeNode node)//TODO:记录值为分数的var，即待分支的var 2-23-2019
-        {
-            int i;
-            double value_var;
-            Value_Column = new Dictionary<int, double>();
-            for (i = 0; i < X.Count; i++)
-            {
-                value_var = masterModel.GetValue(X[i]);
-                if (!(value_var == 0 || value_var == 1))
-                    Value_Column[i] = masterModel.GetValue(X[i]);
-            }
-        }
-
-        public void SolveChildNode(ref TreeNode node) 
-        {            
-            
-            Branch(ref root_node);
-            CG(root_node);           
-        }
-        
-
         public int SolveRMP()
         {
             int status = 0;
@@ -587,7 +584,6 @@ namespace CG_CSP_1440
             return status;
         }
         
-
         bool IsRelaxOpt(ref RCSPP rcspp) //求解子问题，判断 检验数 < 0 ?
         {
             Change_Arc_Length();
@@ -598,26 +594,12 @@ namespace CG_CSP_1440
             return stopLP;//未达到最优，继续生成新列
         }
 
-
-        #region //分支
         void RecordCurrentOpt()
         {
-            int i;
-            double v;
-            Pairing Column;
-            for (i = 0; i < ColumnPool.Count; i++)
-            {
-                Column = ColumnPool[i];
-                v = masterModel.GetValue((INumVar)X[i]);
-                if (v == 1)
-                {
-                    OptColumn.Add(Column);
-                }
-            }
-            // double fixedVar = Value_Column.Max(var => var.Value);
+            
         }
         
-        #endregion
+        
 
         #endregion
         
