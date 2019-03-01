@@ -13,10 +13,10 @@ namespace CG_CSP_1440
     class CSP
     {
         public  List<Pairing> PathSet;
-        public List<double> Coefs;//Cj
+        public List<double> CoefSet;//Cj
         public List<int[]> A_Matrix;//aji
 
-        public List<INumVar> X;
+        public List<INumVar> DvarSet;
 
         int initialPath_num;
         int trip_num;
@@ -35,6 +35,8 @@ namespace CG_CSP_1440
         public Cplex masterModel;
         IObjective Obj;
         IRange[] Constraint;
+
+        RCSPP R_C_SPP;//至始至终定价问题都只有一个实体，求解过程中只是改变各属性值
 
         List<Pairing> ColumnPool = new List<Pairing>();
 
@@ -65,11 +67,13 @@ namespace CG_CSP_1440
             //    {
             //        TripList.Add(trip);
             //    }            
-            //}            
+            //} 
+            Topological2 topo;
+            R_C_SPP = new RCSPP(this.Network, out topo);
         }
 
         //暂时不用这个：引入了一个松弛变量和一个辅助变量
-        public void Build_RMP(InitialSolution IS)
+        public void Build_RMP_auxiliary(InitialSolution IS)
         {            
            // Network = IS.Net;
             //NodeSet = IS.NodeSet;            
@@ -90,8 +94,8 @@ namespace CG_CSP_1440
             trip_num = TripList.Count;
             realistic_trip_num = NetWork.num_Physical_trip;//trip_num / CrewRules.MaxDays;
 
-            X        = new List<INumVar>();//new ArrayList();
-            Coefs    = new List<double>();
+            DvarSet        = new List<INumVar>();//new ArrayList();
+            CoefSet    = new List<double>();
             A_Matrix = new List<int[]>();
             PathSet  = new List<Pairing>();
 
@@ -102,7 +106,7 @@ namespace CG_CSP_1440
 
             //IS.PrepareInputForRMP(TripList); 
             for (i = 0; i < IS.Coefs.Count; i++) {
-                Coefs.Add(IS.Coefs[i]);
+                CoefSet.Add(IS.Coefs[i]);
             }
             for (i = 0; i < IS.A_Matrix.Count; i++) {
                 A_Matrix.Add(IS.A_Matrix[i]);
@@ -131,8 +135,8 @@ namespace CG_CSP_1440
             for (j = 0; j < initialPath_num; j++) 
             {
                 INumVar var = masterModel.NumVar(0, 1, NumVarType.Float);
-                X.Add(var);
-                Obj.Expr = masterModel.Sum(Obj.Expr, masterModel.Prod(Coefs[j], (INumVar)X[j]));
+                DvarSet.Add(var);
+                Obj.Expr = masterModel.Sum(Obj.Expr, masterModel.Prod(CoefSet[j], (INumVar)DvarSet[j]));
             }
             //add slack vars to obj function
             for (i = 0; i < realistic_trip_num; i++) 
@@ -156,7 +160,7 @@ namespace CG_CSP_1440
                     //{
                     //    num_trip_cover += A_Matrix[j][i + k * realistic_trip_num];
                     //}
-                    expr = masterModel.Sum(expr, masterModel.Prod(A_Matrix[j][i], (INumVar)X[j]));
+                    expr = masterModel.Sum(expr, masterModel.Prod(A_Matrix[j][i], (INumVar)DvarSet[j]));
                 }
                 expr = masterModel.Sum(expr, masterModel.Prod(-1, (INumVar)ExtraCovered[i]), (INumVar)Uncovered[i]);
                 //Constraint[i] = masterModel.AddGe(expr, 1);
@@ -166,20 +170,20 @@ namespace CG_CSP_1440
 
         }
 
-        public void Build_RMP_General(InitialSolution IS)
+        public void Build_RMP(InitialSolution IS)
         {            
             //NodeSet = IS.NodeSet;
             initialPath_num = IS.PathSet.Count;                       
             trip_num = TripList.Count;
             realistic_trip_num = NetWork.num_Physical_trip;
 
-            X = new List<INumVar>();
-            Coefs = new List<double>();
+            DvarSet = new List<INumVar>();
+            CoefSet = new List<double>();
             A_Matrix = new List<int[]>();
             PathSet = new List<Pairing>();
 
             //IS.PrepareInputForRMP(TripList);
-            Coefs = IS.Coefs;
+            CoefSet = IS.Coefs;
             A_Matrix = IS.A_Matrix;
             PathSet = IS.PathSet;
 
@@ -222,8 +226,8 @@ namespace CG_CSP_1440
             for (j = 0; j < initialPath_num; j++)
             {
                 INumVar var = masterModel.NumVar(0, 1, NumVarType.Float);
-                X.Add(var);
-                Obj.Expr = masterModel.Sum(Obj.Expr, masterModel.Prod(Coefs[j], X[j]));
+                DvarSet.Add(var);
+                Obj.Expr = masterModel.Sum(Obj.Expr, masterModel.Prod(CoefSet[j], DvarSet[j]));
             }         
             //constraints
             for (i = 0; i < realistic_trip_num; i++)
@@ -233,7 +237,7 @@ namespace CG_CSP_1440
                 for (j = 0; j < initialPath_num; j++)
                 {                   
                     expr = masterModel.Sum(expr, 
-                                           masterModel.Prod(A_Matrix[j][i], X[j]));//在从初始解传值给A_Matrix，已经针对网络复制作了处理
+                                           masterModel.Prod(A_Matrix[j][i], DvarSet[j]));//在从初始解传值给A_Matrix，已经针对网络复制作了处理
                 }
                 
                 Constraint[i] = masterModel.AddGe(expr, 1);
@@ -242,10 +246,9 @@ namespace CG_CSP_1440
 
         public void LinearRelaxation() 
         {            
-            
-            Node s = NodeSet[0];
-            Topological2 Topo = new Topological2(Network, s);
-            RCSPP R_C_SPP = new RCSPP(Topo.Order);
+                        
+            Topological2 topo;
+            R_C_SPP = new RCSPP(Network, out topo);
             //RCSPP R_C_SPP = new RCSPP();              
             //R_C_SPP.UnProcessed = new List<Node>();
             //for (i = 0; i < Topo.Order.Count; i++)
@@ -324,9 +327,9 @@ namespace CG_CSP_1440
                         Constraint[i].Expr = masterModel.Sum(Constraint[i].Expr,
                                                             masterModel.Prod(newAji[i], newColumn));
                     }
-                    X.Add(newColumn);
+                    DvarSet.Add(newColumn);
                     A_Matrix.Add(newAji);
-                    Coefs.Add(newCoef);
+                    CoefSet.Add(newCoef);
                     PathSet.Add(newPath);
                 }
                 else 
@@ -395,38 +398,37 @@ namespace CG_CSP_1440
         
         public void Branch_and_Price(InitialSolution IS) 
         {
-            Build_RMP_General(IS);
+            Build_RMP(IS);
 
             root_node = new TreeNode();
             CG(root_node);
 
-            best_feasible_solution = new List<int>();
-                        
+            best_feasible_solution = new List<int>();                        
             RecordFeasibleSolution(root_node, ref best_feasible_solution);
 
+            double UB = IS.GetObjValue();//int.MaxValue;
+            double LB = root_node.obj_value;
 
-            Branch_and_Bound(root_node);
+            Branch_and_Bound(root_node, LB, UB);
 
         
         }
 
-        #region 新增，2018-12-11，看完分支定界后的想法
+        #region 分支定界
         
-        public void Branch_and_Bound(TreeNode root_node) 
-        {
-            double UB = int.MaxValue;
-            double LB = root_node.obj_value;
-  
-            while (TerminationCondition(root_node) == false) 
+        public void Branch_and_Bound(TreeNode root_node, double LB, double UB) 
+        {            
+            while (true)
             {
+                if (TerminationCondition(root_node) == true)
+                    break;
+
+                #region //先判断可行，再比较目标函数大小
+                /*
                 if (Feasible(root_node) == false)
                 {
                     if (root_node.obj_value > UB) //不必在该点继续分支
                     {
-                        //if (NoVarBranchable(root_node)) //放到停止准则里去，每次循环先检查
-                        //{
-                        //    break;
-                        //}
                         Backtrack(ref root_node.fixed_vars);                                              
                     }
                     else //root_node.obj_value <= UB,有希望，更新下界，继续分支,
@@ -451,6 +453,33 @@ namespace CG_CSP_1440
                 }
 
                 SolveChildNode(ref root_node);
+                */
+                #endregion
+
+                #region 先比较界限，再判断是否可行
+                if (root_node.obj_value > UB) //不论可行与否，只要大于上界，都必须剪枝，然后回溯
+                {                    
+                    Backtrack(ref root_node.fixed_vars);                    
+                }
+                else if (LB <= root_node.obj_value && root_node.obj_value <= UB) 
+                {
+                    if (Feasible(root_node) == false) //不可行，更新下界；继续向下分支
+                    {
+                        LB = root_node.obj_value;
+                    }
+                    else //可行，更新上界，记录当前可行解；回溯
+                    {
+                        UB = root_node.obj_value;
+                        RecordFeasibleSolution(root_node, ref best_feasible_solution);
+                        Backtrack(ref root_node.fixed_vars);
+                    }
+                }
+
+                Branch(ref root_node); //寻找需要分支的变量
+
+                CG(root_node); //求解子节点
+
+                #endregion
             }
         }
 
@@ -524,42 +553,68 @@ namespace CG_CSP_1440
             }
         }
 
-        public void SolveChildNode(ref TreeNode node) 
+        public void SolveChildNode(ref TreeNode node) //没必要合并，对吧
         {                        
             Branch(ref root_node);
             CG(root_node);           
         }
         
-        /*******CG相关*******/
+        #endregion
+
+        #region 列生成
+         /*******CG相关*******/
         public void CG(TreeNode tree_node)
         {
-            //IS
-            //BuildRMP
-            int result = SolveRMP();
-            int i;
+            //在CG之前，RMP已经构造完毕，即BuildRMP已执行
+            //固定分支变量的值（==1）等于是另外加上变量的取值范围约束
+            FixVars(tree_node.fixed_vars);
 
-            RCSPP rcspp = new RCSPP();//至始至终定价问题都只有一个实体，求解过程中只是改变各属性值
-            List<Pairing> New_Columns;
-            double[] reduced_costs;
-            int[,] new_MultiAjis;
-
+            int result = SolveRMP(); // 0-最优            
+                       
+            //生成列
             for (; ; )
             {
-                //if (IsRelaxOpt(ref rcspp))
-                //    break;
-                //Console.WriteLine("检验数(min)： " + rcspp.Reduced_Cost);
+                if (IsLPOpt())
+                {
+                    break;
+                }
+                    
+                Console.WriteLine("检验数(min)： " + R_C_SPP.Reduced_Cost);
                 //TODO:add columns
-                //New_Columns = rcspp.New_Columns;
-                //reduced_costs = rcspp.reduced_costs;
-                //new_MultiAjis = rcspp.newMultiAji;
-                //for ( i = 0; i < New_Columns.Count; i++)
-                //{
+                double col_coef = 0;
+                int[] aj;
+                foreach (Pairing column in R_C_SPP.New_Columns) 
+                {
+                    ColumnPool.Add(column);
 
-                //}
+                    col_coef = column.Coef;
+                    aj = column.CoverMatrix;
+
+                    INumVar column_var = masterModel.NumVar(0, 1, NumVarType.Float);
+                    // function
+                    Obj.Expr = masterModel.Sum(Obj.Expr, masterModel.Prod(col_coef, column_var));
+                    // constrains
+                    for (int i = 0; i < realistic_trip_num; i++)
+                    {
+                        Constraint[i].Expr = masterModel.Sum(Constraint[i].Expr,
+                                                            masterModel.Prod(aj[i], column_var));
+                    }
+
+                    DvarSet.Add(column_var);
+                    A_Matrix.Add(aj);
+                    CoefSet.Add(col_coef);                    
+                }                  
             }
-
-
         }
+        void FixVars(List<int> fixed_vars) 
+        {
+            foreach (int i in fixed_vars) 
+            {
+                DvarSet[i].LB = 1.0;
+                DvarSet[i].UB = 1.0;
+            }
+        }
+
         public int SolveRMP()
         {
             int status = 0;
@@ -567,39 +622,30 @@ namespace CG_CSP_1440
             {
                 if (masterModel.Solve())
                 {
-                    Console.WriteLine("{0}: {1}", "RMP ObjValue", masterModel.GetObjValue());
-                    //Console.WriteLine("iter time: ",Linear_iter);
+                    Console.WriteLine("{0}: {1}", "Current RMP ObjValue", masterModel.GetObjValue());
                 }
                 else
                 {
                     throw new ILOG.Concert.Exception();
                 }
-
             }
             catch (ILOG.Concert.Exception ex)
             {
-                Console.WriteLine("RMP can't solved, there might exit some error");
+                Console.WriteLine("Current RMP can't solved, there might exit some error");
                 Console.WriteLine("{0} from {1}", ex.Message, ex.Source);
             }
             return status;
         }
         
-        bool IsRelaxOpt(ref RCSPP rcspp) //求解子问题，判断 检验数 < 0 ?
+        bool IsLPOpt() //求解子问题，判断 检验数 < 0 ?
         {
             Change_Arc_Length();
-            rcspp.ShortestPath("Forward");
+            this.R_C_SPP.ShortestPath("Forward");
 
-            bool stopLP = rcspp.FindMultipleNewPath(num_AddColumn);//T-opt;F-iter
-
-            return stopLP;//未达到最优，继续生成新列
+            //FindMultipleNewPColumn():True-找到新列，继续迭代;False-找不到新列，最优,停止
+            bool opt = !this.R_C_SPP.FindMultipleNewPColumn(num_AddColumn) || R_C_SPP.Reduced_Cost > -1e12;
+            return opt;
         }
-
-        void RecordCurrentOpt()
-        {
-            
-        }
-        
-        
 
         #endregion
         
