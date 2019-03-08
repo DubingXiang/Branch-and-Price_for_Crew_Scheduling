@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using ILOG.Concert;
+using ILOG.CPLEX;
 
 namespace CG_CSP_1440
 {
@@ -34,7 +36,7 @@ namespace CG_CSP_1440
             }
         }
     }
-    public struct Pairing 
+    public class Pairing 
     {
         public List<Arc> Arcs;
         public double Cost;
@@ -147,4 +149,40 @@ namespace CG_CSP_1440
         public string Station;
         
     }
+
+    public class TreeNode 
+    {
+        public double obj_value;
+        public List<int> fixing_vars;
+        public Dictionary<int, double> not_fixed_var_value_pairs; //由于每次找最大的Value对应的key，所以可以用一个最大堆来优化
+        /// <summary>
+        /// 这是回溯"剪枝"剪掉的变量，不得再被二次分支
+        /// </summary>
+        public List<int> fixed_vars;
+
+        public TreeNode() 
+        {
+            fixing_vars = new List<int>();
+            not_fixed_var_value_pairs = new Dictionary<int, double>();
+            fixed_vars = new List<int>();
+        }
+    }
+
+    //public class Dvar : INumVar 
+    //{
+    //    public double value_;
+    //    public NumVarType type_;
+
+    //    public Dvar() 
+    //    {
+        
+    //    }
+
+    //    public double Value() 
+    //    {
+        
+    //    }
+
+    //}
+
 }

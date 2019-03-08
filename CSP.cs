@@ -404,10 +404,16 @@ namespace CG_CSP_1440
         
         public void Branch_and_Price(InitialSolution IS) 
         {
+            Stopwatch sw = new Stopwatch();
+            sw.Start();
+
             Build_RMP(IS);
 
             root_node = new TreeNode();
             CG(ref root_node);
+
+            sw.Stop();
+            Console.WriteLine("根节点求解时间： " + sw.Elapsed.TotalSeconds);
 
             best_feasible_solution = new List<int>();                        
             RecordFeasibleSolution(root_node, ref best_feasible_solution);
@@ -415,8 +421,7 @@ namespace CG_CSP_1440
             double UB = IS.initial_ObjValue;//int.MaxValue;
             double LB = root_node.obj_value;
 
-            Stopwatch sw = new Stopwatch();
-            sw.Start();
+            sw.Restart();
 
             Branch_and_Bound(root_node, LB, UB);
 
@@ -428,7 +433,7 @@ namespace CG_CSP_1440
         
         public void Branch_and_Bound(TreeNode root_node, double LB, double UB) 
         {            
-            string path = System.Environment.CurrentDirectory + "\\结果\\SolutionPool.txt";
+            string path = System.Environment.CurrentDirectory + "\\结果\\CYY_SolutionPool.txt";
             StreamWriter fesible_solutions = new StreamWriter(path);
             int num_iter = 0;
             
@@ -472,7 +477,7 @@ namespace CG_CSP_1440
                 #region 先比较界限，再判断是否可行
                 if (root_node.obj_value > UB) //不论可行与否，只要大于上界，都必须剪枝，然后回溯
                 {                    
-                    Backtrack(ref root_node.fixed_vars);                    
+                    Backtrack(ref root_node);                    
                 }
                 else if (LB <= root_node.obj_value && root_node.obj_value <= UB) 
                 {
@@ -483,34 +488,35 @@ namespace CG_CSP_1440
                     else //可行，更新上界，记录当前可行解；回溯
                     {
                         UB = root_node.obj_value;
-                        RecordFeasibleSolution(root_node, ref best_feasible_solution);
-                        //fesible_solutions.WriteLine("第{0}个节点", num_iter);
-                        //fesible_solutions.WriteLine("UB = {0}, LB = {1}, GAP = {2}", UB, LB, (UB - LB) / UB);
-                        //int num = 0;
-                        //foreach (var index in root_node.fixed_vars)
-                        //{
-                        //    fesible_solutions.WriteLine("乘务交路 " + (num++) + " ");
-                        //    foreach (var arc in ColumnPool[index].Arcs) 
-                        //    {
-                        //        fesible_solutions.Write(arc.D_Point.TrainCode + "->");
-                                
-                        //    }
-                        //    fesible_solutions.WriteLine();
-                        //}
-                        //foreach (var k_v in root_node.not_fixed_var_value_pairs) 
-                        //{
-                        //    if (k_v.Value > 0) 
-                        //    {
-                        //        fesible_solutions.WriteLine("乘务交路 " + (num++) + " ");
-                        //        foreach (var arc in ColumnPool[k_v.Key].Arcs)
-                        //        {
-                        //            fesible_solutions.Write(arc.D_Point.TrainCode + "->");
-                        //        }
-                        //        fesible_solutions.WriteLine();
-                        //    }
-                        //}
+                        //RecordFeasibleSolution(root_node, ref best_feasible_solution);
+                        RecordFeasibleSolution(ref best_feasible_solution);
+                        fesible_solutions.WriteLine("第{0}个节点", num_iter);
+                        fesible_solutions.WriteLine("UB = {0}, LB = {1}, GAP = {2}", UB, LB, (UB - LB) / UB);
+                        int num = 0;
+                        foreach (var index in root_node.fixing_vars)
+                        {
+                            fesible_solutions.WriteLine("乘务交路 " + (num++) + " ");
+                            foreach (var arc in ColumnPool[index].Arcs)
+                            {
+                                fesible_solutions.Write(arc.D_Point.TrainCode + "->");
 
-                        Backtrack(ref root_node.fixed_vars);
+                            }
+                            fesible_solutions.WriteLine();
+                        }
+                        foreach (var k_v in root_node.not_fixed_var_value_pairs)
+                        {
+                            if (k_v.Value > 0)
+                            {
+                                fesible_solutions.WriteLine("乘务交路 " + (num++) + " ");
+                                foreach (var arc in ColumnPool[k_v.Key].Arcs)
+                                {
+                                    fesible_solutions.Write(arc.D_Point.TrainCode + "->");
+                                }
+                                fesible_solutions.WriteLine();
+                            }
+                        }
+
+                        Backtrack(ref root_node);
                     }
                 }
                 else if (root_node.obj_value < LB) 
@@ -544,7 +550,7 @@ namespace CG_CSP_1440
             /*没有节点（变量）可以回溯，所有变量分支过了
                            * 没有变量可以分支，所有变量都分支过了
                             */
-            if (root_node.fixed_vars.Count == 0
+            if (root_node.fixing_vars.Count == 0
                 || root_node.not_fixed_var_value_pairs.Count == 0)
             {
                 Console.WriteLine("找不到可分支的变量");
@@ -573,9 +579,12 @@ namespace CG_CSP_1440
             return Math.Abs(value - Convert.ToInt32(value)) <= epsilon; //不是整数，不可行（浮点型不用 == ，!=比较）           
         }
         
-        void Backtrack(ref List<int> fixed_vars) 
-        {                        
-            fixed_vars.RemoveAt(fixed_vars.Count - 1);
+        void Backtrack(ref TreeNode node) 
+        {
+            //剪枝
+            node.fixed_vars.Add(node.fixing_vars.Last());
+
+            node.fixing_vars.RemoveAt(node.fixing_vars.Count - 1);
         }
         void Branch(ref TreeNode node)
         {
@@ -592,18 +601,36 @@ namespace CG_CSP_1440
                 maxvalue = maxvalue > var_value.Value ? maxvalue : var_value.Value;
             }
 
-            node.fixed_vars.Add(var_of_maxvalue);
+            node.fixing_vars.Add(var_of_maxvalue);
             node.not_fixed_var_value_pairs.Remove(var_of_maxvalue);
         }
 
-        void RecordFeasibleSolution(TreeNode node, ref List<int> best_feasible_solution)//TODO:因为fixed_vars被fixed为1，所以只需记录值为分数的var（0 or 1），即待分支的var 2-23-2019
+        void RecordFeasibleSolution(ref List<int> best_feasible_solution) 
         {
-            best_feasible_solution.Clear(); //找到更好的可行解了，不需要之前的了
+            best_feasible_solution.Clear();
+            double value;
+            for (int i = 0; i < DvarSet.Count; i++)
+            {
+                value = masterModel.GetValue(DvarSet[i]);
+                if (Convert.ToInt32(value) > 0 && ISInteger(value))
+                {
+                    best_feasible_solution.Add(i);
+                }
+            }
+        }
+
+        void RecordFeasibleSolution(TreeNode node, ref List<int> best_feasible_solution)
+        {
+            best_feasible_solution.Clear(); //找到更好的可行解了，不需要之前的了            
+            ///方式2
             //已分支的变量固定为 1，直接添加
-            foreach (var v in node.fixed_vars) 
+            foreach (var v in node.fixing_vars) 
             {
                 best_feasible_solution.Add(v);
             }
+
+            //TODO:回溯剪枝掉的var也得判断其值
+            
             //未分支的变量，判断其是否为 1（为不失一般性，写的函数功能是判断是否为整数）
             foreach (var var_value in node.not_fixed_var_value_pairs) 
             {
@@ -628,7 +655,7 @@ namespace CG_CSP_1440
         {
             //在CG之前，RMP已经构造完毕，即BuildRMP已执行
             //固定分支变量的值（==1）等于是另外加上变量的取值范围约束
-            FixVars(tree_node.fixed_vars);
+            FixVars(tree_node.fixing_vars);
             int num_iterations = 0;
 
             //Stopwatch sw = new Stopwatch();
@@ -696,16 +723,17 @@ namespace CG_CSP_1440
             {
                 
                 //将未分支的变量添加到待分支变量集合中
-                if (tree_node.fixed_vars.Contains(i) == false) 
+                //!这里有bug!被回溯“扔掉”的变量不能再添加到fixed_vars中,加上 &&一句
+                if (tree_node.fixing_vars.Contains(i) == false && tree_node.fixed_vars.Contains(i) == false) 
                 {
                     tree_node.not_fixed_var_value_pairs.Add(i, masterModel.GetValue(DvarSet[i]));
                 }
             }
 
         }
-        void FixVars(List<int> fixed_vars) 
+        void FixVars(List<int> fixeing_vars) 
         {
-            foreach (int i in fixed_vars) 
+            foreach (int i in fixeing_vars) 
             {
                 DvarSet[i].LB = 1.0;
                 DvarSet[i].UB = 1.0;

@@ -13,22 +13,30 @@ namespace CG_CSP_1440
         public List<double> Coefs;
         public List<Pairing> PathSet;
 
+        public double initial_ObjValue;
+        
+        
         //输入变量
         NetWork Net;
         List<Node> NodeSet;
         //List<Node> TripList;//目标点集。依次以tripList中的点为起点，求其顺逆向寻最短路
         List<Node> LineList;
+        List<int> LineIDList;
 
         public InitialSolution(NetWork Network) 
         {
             Net = Network;
             NodeSet = Net.NodeSet;
             LineList = new List<Node>();
+            LineIDList = new List<int>();
             PathSet = new List<Pairing>();
             //TripList = Net.TripList;            
-            for (int i = 0; i < Net.TripList.Count/CrewRules.MaxDays; i++)
+            for (int i = 0; i < Net.TripList.Count && LineIDList.Count != NetWork.num_Physical_trip; i++)
             {
-                LineList.Add(Net.TripList[i]);                
+                //LineList.Add(Net.TripList[i]);                
+                if (LineIDList.Contains(Net.TripList[i].LineID) == false) {
+                    LineIDList.Add(Net.TripList[i].LineID);
+                }
             }
         }
 
@@ -38,17 +46,16 @@ namespace CG_CSP_1440
             Node trip = new Node();
             Pairing loopPath;
             int i, j;                        
-            Node s = NodeSet[0];
-            Topological2 Topo = new Topological2(Net, s);
-
-            RCSPP R_C_SPP = new RCSPP(Topo.Order);           
+            //Node s = NodeSet[0];
+            Topological2 topo;
+            RCSPP R_C_SPP = new RCSPP(Net, out topo);           
             //R_C_SPP.UnProcessed = new List<Node>();
             //for (i = 0; i < Topo.Order.Count; i++) {
             //    R_C_SPP.UnProcessed.Add(Topo.Order[i]);
             //}
             R_C_SPP.ShortestPath("Forward");
             
-            R_C_SPP.UnProcessed = Topo.Order;
+            //R_C_SPP.UnProcessed = Topo.Order; //TODO:测试 2-24-2019
             R_C_SPP.ShortestPath("Backward");
             //for (i = 0; i < NodeSet.Count; i++) 
             //{
@@ -160,10 +167,10 @@ namespace CG_CSP_1440
             Node trip = new Node();
             Pairing Pairing;
             int i;
-            Node s = NodeSet[0];
-            Topological2 Topo = new Topological2(Net, s);
+           
+            Topological2 topo;
 
-            RCSPP R_C_SPP = new RCSPP(Topo.Order);
+            RCSPP R_C_SPP = new RCSPP(Net, out topo); //TODO:测试 2-24-2019
             //R_C_SPP.UnProcessed = new List<Node>();
             //for (i = 0; i < Topo.Order.Count; i++)
             //{
@@ -173,27 +180,58 @@ namespace CG_CSP_1440
             R_C_SPP.ChooseCostDefinition(0);
             Arc arc;
            //迭代，直到所有trip被cover
-            while (LineList.Count > 0) 
-            {                
-                R_C_SPP.ShortestPath("Forward");
-                
+            while (LineIDList.Count > 0) 
+            {
+                Console.Write(LineIDList.Count + ", ");
+
+                R_C_SPP.ShortestPath("Forward");                
                 R_C_SPP.FindNewPath();
-                Pairing = R_C_SPP.New_Column;
-                PathSet.Add(Pairing);
+
+                Pairing = R_C_SPP.New_Column;                
+                PathSet.Add(Pairing);               
                 for (i = 1; i < Pairing.Arcs.Count - 2; i++) //起终点不用算
                 {
                     arc = Pairing.Arcs[i];
+                    //需还原pairing的Cost，减去 当前 增加的 M 的部分，即price
+                    if (arc.D_Point.numVisited > 0) 
+                    {
+                        Pairing.Cost += arc.D_Point.Price;
+                    }
+
                     arc.D_Point.numVisited++; 
                     arc.D_Point.Price = -arc.D_Point.numVisited * M;
-                    LineList.Remove(arc.D_Point);
+                    //第二天对应的复制点也要改变
+                    if (CrewRules.MaxDays > 1)//&& arc.D_Point.StartTime < 1440) 
+                    {
+                        //NodeSet[arc.D_Point.ID + NetWork.num_Physical_trip].numVisited++;
+                        //NodeSet[arc.D_Point.ID + NetWork.num_Physical_trip].Price =
+                        //    -NodeSet[arc.D_Point.ID + NetWork.num_Physical_trip].numVisited * M;
+                        for (int j = 0; j < NodeSet.Count; j++)
+                        {
+                            if (NodeSet[j].LineID == arc.D_Point.LineID && NodeSet[j].StartTime > arc.D_Point.StartTime)
+                            {
+                                NodeSet[j].numVisited++;
+                                NodeSet[j].Price = -NodeSet[j].numVisited * M;
+                            }
+                        }
+                    }                    
+
+                    //LineList.Remove(arc.D_Point);
+                    LineIDList.Remove(arc.D_Point.LineID);
                 }
+            }
+            //还原trip的price
+            foreach (var node in this.NodeSet) 
+            {
+                node.numVisited = 0;
+                node.Price = 0;
             }
 
             PrepareInputForRMP(Net.TripList);
 
             return this.PathSet;
-        }
-        
+        }        
+
         private void PrepareInputForRMP(List<Node> TripList) //2-21-2019改前是 ref
         {
             //Get Coef in FindAllPaths
@@ -202,7 +240,7 @@ namespace CG_CSP_1440
             int realistic_trip_num = NetWork.num_Physical_trip;
             foreach (var path in PathSet) {
                 //Coefs.Add(path.Cost);
-                Coefs.Add(path.Coef); //TODO:待测试 2-21-2019
+                Coefs.Add(path.Coef); 
 
                 int[] a = new int[realistic_trip_num];
                 for (int i = 0; i < realistic_trip_num; i++) {
@@ -219,6 +257,17 @@ namespace CG_CSP_1440
 
                 A_Matrix.Add(a);
             }
+
+            GetObjValue();
+        }
+
+        private double GetObjValue() 
+        {            
+            foreach (var c in Coefs) 
+            {
+                initial_ObjValue += c;
+            }
+            return initial_ObjValue;
         }
 
     }
@@ -227,18 +276,21 @@ namespace CG_CSP_1440
     class RCSPP 
     {                
         //OUTPUT
-        public  double Reduced_Cost;
+        public double Reduced_Cost = 0;
         public  Pairing New_Column;
         //public int[] newAji;
         //public int[,] newMultiAji;
+
         //添加的
+
         public List<Pairing> New_Columns;
         List<Label> negetiveLabels;
         //public double[] reduced_costs;
 
         //与外界相关联的
         public List<Node> UnProcessed = new List<Node>();//Topo序列
-        public List<CrewBase> CrewbaseList = DataFromSQL.CrewBaseList; //2-20-2019
+        
+        public List<CrewBase> CrewbaseList = DataReader.CrewBaseList; //2-20-2019
 
         double accumuConsecDrive, accumuDrive, accumuWork, C;//资源向量,cost
         bool resource_feasible;
@@ -246,17 +298,20 @@ namespace CG_CSP_1440
 
         //public Dictionary<string, int> costDefinition = new Dictionary<string, int>();
         int costType;
-        
-        public RCSPP(List<Node> topological_Order) 
+
+        public RCSPP(NetWork net, out Topological2 topological) 
         {
-            foreach (Node node in topological_Order) 
+            Node s = net.NodeSet[0];
+            topological = new Topological2(net, s);
+
+            foreach (Node node in topological.Order) 
             {
                 UnProcessed.Add(node);
             }
         }
 
         /// <summary>
-        /// 0<= definetype <=2,选择成本的具体定义。//（此前可定义一个字典，选择定义）
+        ///  definetype in [0,2],选择成本的具体定义。//（此前可定义一个字典，选择定义）
         /// </summary>
         /// <param name="defineType"></param>
         public void ChooseCostDefinition(int defineType)
@@ -690,12 +745,13 @@ namespace CG_CSP_1440
             New_Column.Coef *= pathday;
         }
         //TODO:添加多列
-        public bool FindMultipleNewPath(int num_addColumns)
+        public bool FindMultipleNewPColumn(int num_addColumns)
         {
             List<Node> topoNodeList = UnProcessed;
             Node virD = topoNodeList.Last();            
             negetiveLabels = new List<Label>();
 
+            Reduced_Cost = 0;
             Label label1;           
             int i;
             //找标号Cost < 0即可           
@@ -710,60 +766,59 @@ namespace CG_CSP_1440
 
             if (negetiveLabels.Count == 0) //检验数均大于0，原问题最优
             {   
-                return true; 
-            } 
-            else
-            {                             
-                num_addColumns = Math.Min(num_addColumns, negetiveLabels.Count);
-                //TODO:TopN排序，只想最多添加N列，则只需找出TopN即可   
-                //先调用方法全部排序吧
-                negetiveLabels.OrderBy(labelCost => labelCost.AccumuCost);
+                return false; 
+            }
 
-                Reduced_Cost = negetiveLabels[0].AccumuCost;//固定为最小Cost
-                //reduced_costs = new double[num_addColumns];
-                New_Columns = new List<Pairing>(num_addColumns);
-                
-                //局部变量                
-                int realistic_trip_num = NetWork.num_Physical_trip;
-                Node virO = topoNodeList[0];
-                Arc arc;
-                //newMultiAji = new int[num_addColumns, realistic_trip_num];//全部元素默认为0                
+            num_addColumns = Math.Min(num_addColumns, negetiveLabels.Count);
+            //TODO:TopN排序，只想最多添加N列，则只需找出TopN即可   
+            //先调用方法全部排序吧
+            negetiveLabels = negetiveLabels.OrderBy(labelCost => labelCost.AccumuCost).ToList();
 
-                for (i = 0; i < num_addColumns; i++)
+            Reduced_Cost = negetiveLabels[0].AccumuCost;//固定为最小Cost
+            //reduced_costs = new double[num_addColumns];
+            New_Columns = new List<Pairing>(num_addColumns);
+
+            //局部变量                
+            int realistic_trip_num = NetWork.num_Physical_trip;
+            Node virO = topoNodeList[0];
+            Arc arc;
+            //newMultiAji = new int[num_addColumns, realistic_trip_num];//全部元素默认为0                
+
+            for (i = 0; i < num_addColumns; i++)
+            {
+                label1 = negetiveLabels[i];
+                //reduced_costs[i] = label1.AccumuCost;
+
+                New_Column = new Pairing();
+                New_Column.Arcs = new List<Arc>();
+                New_Column.CoverMatrix = new int[realistic_trip_num];
+                New_Column.Cost = label1.AccumuCost;
+                New_Column.Coef = 1440;
+                int pathday = 1;
+
+                arc = label1.PreEdge;
+                while (!arc.O_Point.Equals(virO))
                 {
-                    label1 = negetiveLabels[i];                   
-                    //reduced_costs[i] = label1.AccumuCost;
-
-                    New_Column             = new Pairing();
-                    New_Column.Arcs        = new List<Arc>();
-                    New_Column.CoverMatrix = new int[realistic_trip_num];
-                    New_Column.Cost        = label1.AccumuCost;
-                    New_Column.Coef        = 1440;
-                    int pathday = 1;
-
-                    arc = label1.PreEdge;
-                    while (!arc.O_Point.Equals(virO))
-                    {
-                        New_Column.Arcs.Insert(0, arc);
-                        
-                        if (arc.O_Point.LineID > 0) 
-                        {
-                            New_Column.CoverMatrix[arc.O_Point.LineID - 1] = 1;
-                        }
-
-                        pathday = arc.ArcType == 22 ? pathday + 1 : pathday;
-
-                        label1 = label1.PreLabel;
-                        arc = label1.PreEdge;
-                    }
                     New_Column.Arcs.Insert(0, arc);
-                    New_Column.Coef *= pathday;
 
-                    New_Columns.Add(New_Column);
-                }                
+                    if (arc.O_Point.LineID > 0)
+                    {
+                        New_Column.CoverMatrix[arc.O_Point.LineID - 1] = 1;
+                    }
 
-                return false;
-            }            
+                    pathday = arc.ArcType == 22 ? pathday + 1 : pathday;
+
+                    label1 = label1.PreLabel;
+                    arc = label1.PreEdge;
+                }
+                New_Column.Arcs.Insert(0, arc);
+                New_Column.Coef *= pathday;
+
+                New_Columns.Add(New_Column);
+            }
+
+            return true;
+                        
         }
     }
 
