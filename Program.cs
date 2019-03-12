@@ -49,14 +49,14 @@ namespace CG_CSP_1440
             /*--BRANCH AND PRICE--*/
             CSP Csp = new CSP(Network);
             //Csp.Build_RMP(IS);
-            Csp.Build_RMP_General(IS);
+            Csp.Build_RMP(IS);
             Csp.LinearRelaxation();
 
             string LP_result_schedule = "C:\\Users\\Administrator\\Desktop\\LP_CYY2.txt";
-            Csp.WriteCrewPaths(LP_result_schedule);
+            //Csp.WriteCrewPaths(LP_result_schedule);
 
             Cplex masterModel = Csp.masterModel;
-            List<INumVar> vars = Csp.X;
+            List<INumVar> vars = Csp.DvarSet;
             //masterModel.WriteSolutions("D:\\Crew_Solution.txt");
             masterModel.ExportModel("D:\\MP2.lp");
 
@@ -84,7 +84,7 @@ namespace CG_CSP_1440
             masterModel.WriteSolutions("D:\\IP_Solutions");
 
             string IP_result_schedule = "C:\\Users\\Administrator\\Desktop\\IP_Crew_Schedule2.txt";
-            Csp.WriteCrewPaths(IP_result_schedule);
+            //Csp.WriteCrewPaths(IP_result_schedule);
 
             count = 0;
             for (i = 0; i < vars.Count; i++)
