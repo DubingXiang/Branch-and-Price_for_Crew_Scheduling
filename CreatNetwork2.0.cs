@@ -8,7 +8,7 @@ namespace CG_CSP_1440
     public struct CrewRules
     {
         #region 乘务规则参数设置,初始解，最短路中的参数 = 该处，则只需在建网时更改参数
-        public static int TransTime = 20;        
+        public static int minTransTime = 20;        
         //public static int[] Interval = new int[2] { 30, 120 };
         public enum Interval { min = 30, max = 120 }
         //public static int ConsecuDrive = 180;//铭-240;岩-180
@@ -21,7 +21,7 @@ namespace CG_CSP_1440
             min = 960,
             max = 1200  //设置时间窗，为了减少弧
         }
-        public static int Longest = 1440;//先一样
+        public static int maxLength = 1440;//先一样
         public static int MaxDays = 2;
         #endregion
     }
@@ -38,7 +38,7 @@ namespace CG_CSP_1440
         }
         ///
         #region 乘务规则参数设置, 只需在建网时更改参数
-        int TransTime           = CrewRules.TransTime;
+        int TransTime           = CrewRules.minTransTime;
         //int minInterval         = (int)CrewRules.Interval.min;
         int maxInterval         = (int)CrewRules.Interval.max;
         //int minConsecuDrive     = (int)CrewRules.ConsecuDrive.min;//铭-240;岩-180
@@ -47,18 +47,22 @@ namespace CG_CSP_1440
         int TotalCrewTime       = CrewRules.TotalCrewTime;//铭-540;岩-480
         int minNonBaseRest      = (int)CrewRules.NonBaseRest.min;//铭-720;岩-960
         int maxNonBaseRest      = (int)CrewRules.NonBaseRest.max;
-        int Longest             = CrewRules.Longest;//先一样
+        int Longest             = CrewRules.maxLength;//先一样
         int MaxDays             = CrewRules.MaxDays;
         #endregion        
 
         public void CreateNetwork(string ConnStr) 
         {
-            DataFromSQL sqlData = new DataFromSQL();
-            sqlData.Ds = sqlData.ConnSQL(ConnStr);
-            sqlData.LoadData(sqlData.Ds, MaxDays);
+            DataReader Data = new DataReader();
+            //Data.Ds = Data.ConnSQL(ConnStr);
+            //Data.LoadData_sql(Data.Ds, MaxDays);
+            List<string> csvfiles;
+            Data.Connect_csvs(out csvfiles);
+            Data.LoadData_csv(MaxDays);
+
             //建弧
-            this.NodeSet = sqlData.NodeSet;
-            this.TripList = sqlData.TripList;
+            this.NodeSet = Data.NodeSet;
+            this.TripList = Data.TripList;
             ArcSet = new List<Arc>();
             int i, j;
             Node trip1, trip2;
@@ -66,7 +70,7 @@ namespace CG_CSP_1440
             Node virO = NodeSet[0];
             Node virD = NodeSet[1];
             
-            List<Node> odBase = sqlData.ODBaseList;
+            List<Node> odBase = Data.ODBaseList;
             for (i = 0; i < odBase.Count; i++) //虚拟起终点弧
             {
                 //virO--OBase
@@ -151,7 +155,7 @@ namespace CG_CSP_1440
                 }                                
             }
             //原始区段数
-            num_physical_trip = (NodeSet.Count - 2 - 2 * DataFromSQL.CrewBaseList.Count) / CrewRules.MaxDays;
+            num_physical_trip = (NodeSet.Count - 2 - 2 * DataReader.CrewBaseList.Count) / CrewRules.MaxDays;
 
             #region CheckTestArcs
             //foreach (Arc arc in ArcSet) 

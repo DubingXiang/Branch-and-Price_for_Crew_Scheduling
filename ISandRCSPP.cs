@@ -38,6 +38,13 @@ namespace CG_CSP_1440
                     LineIDList.Add(Net.TripList[i].LineID);
                 }
             }
+            for (int i = 0; i < Net.TripList.Count / CrewRules.MaxDays; i++) 
+            {
+                if (LineList.Contains(Net.TripList[i]) == false) {
+                    LineList.Add(Net.TripList[i]);                
+                }
+            }
+
         }
 
         public List<Pairing> GetFeasibleSolutionByMethod1()
@@ -180,7 +187,9 @@ namespace CG_CSP_1440
             R_C_SPP.ChooseCostDefinition(0);
             Arc arc;
            //迭代，直到所有trip被cover
-            while (LineIDList.Count > 0) 
+            
+            //while (LineList.Count > 0) 
+            while (LineIDList.Count > 0)             
             {
                 Console.Write(LineIDList.Count + ", ");
 
@@ -203,9 +212,6 @@ namespace CG_CSP_1440
                     //第二天对应的复制点也要改变
                     if (CrewRules.MaxDays > 1)//&& arc.D_Point.StartTime < 1440) 
                     {
-                        //NodeSet[arc.D_Point.ID + NetWork.num_Physical_trip].numVisited++;
-                        //NodeSet[arc.D_Point.ID + NetWork.num_Physical_trip].Price =
-                        //    -NodeSet[arc.D_Point.ID + NetWork.num_Physical_trip].numVisited * M;
                         for (int j = 0; j < NodeSet.Count; j++)
                         {
                             if (NodeSet[j].LineID == arc.D_Point.LineID && NodeSet[j].StartTime > arc.D_Point.StartTime)
